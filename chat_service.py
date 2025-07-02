@@ -39,6 +39,8 @@ class ChatService:
         
         return "\n".join(context_parts)
     
+    
+    
     def _create_system_prompt(self, context: str) -> str:
         """Create system prompt with context"""
         return f"""You are a helpful AI assistant. Use the following context to answer the user's question. 
@@ -46,13 +48,13 @@ If the context doesn't contain relevant information to answer the question, say 
 
 Context:
 {context}
-
 Instructions:
 - Provide accurate and helpful responses
 - If you reference information from the context, be specific
 - If the context is not sufficient, acknowledge this limitation
 - Be conversational and friendly
 """
+    
     
     async def chat(self, message: str, conversation_id: str = None, max_tokens: int = None, temperature: float = None) -> Dict[str, Any]:
         """Process chat message and return response"""
