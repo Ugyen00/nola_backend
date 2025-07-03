@@ -212,6 +212,34 @@ async def train_from_qa(qa_text: str = Form(...), metadata: Optional[str] = Form
         logger.error(f"Q&A training error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Q&A training failed: {str(e)}")
 
+@app.post("/train/text")
+async def train_from_text(text_content: str = Form(...), title: Optional[str] = Form(None), metadata: Optional[str] = Form(None)):
+    """Train from raw text content"""
+    try:
+        # Validate input
+        if not text_content or not text_content.strip():
+            raise HTTPException(status_code=400, detail="Text content cannot be empty")
+        
+        # Parse metadata if provided
+        import json
+        parsed_metadata = json.loads(metadata) if metadata else {}
+        
+        # Add title to metadata if provided
+        if title:
+            parsed_metadata["title"] = title
+        
+        request = TrainingRequest(
+            document_type=DocumentType.TEXT,
+            content=text_content,
+            metadata=parsed_metadata
+        )
+        
+        return await train_chatbot(request)
+        
+    except Exception as e:
+        logger.error(f"Text training error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Text training failed: {str(e)}")
+
 @app.post("/train/batch")
 async def batch_train(requests: List[TrainingRequest]):
     """Train with multiple documents in batch"""

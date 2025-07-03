@@ -122,6 +122,40 @@ class DocumentProcessor:
             logger.error(f"Error processing Q&A text: {str(e)}")
             return []
     
+    def process_text(self, text_content: str, title: str = None) -> List[Dict[str, Any]]:
+        """Process raw text content provided by user"""
+        try:
+            # Validate input
+            if not text_content or not text_content.strip():
+                logger.warning("Empty text content provided")
+                return []
+            
+            # Split text content into chunks
+            chunks = self.text_splitter.split_text(text_content)
+            
+            # Create document objects
+            documents = []
+            for i, chunk in enumerate(chunks):
+                doc = {
+                    "text": chunk,
+                    "metadata": {
+                        "source": "user_text",
+                        "document_type": "text",
+                        "chunk_index": i,
+                        "title": title or "User Provided Text",
+                        "content_length": len(text_content),
+                        "total_chunks": len(chunks)
+                    }
+                }
+                documents.append(doc)
+            
+            logger.info(f"Processed text content: {len(documents)} chunks from {len(text_content)} characters")
+            return documents
+            
+        except Exception as e:
+            logger.error(f"Error processing text content: {str(e)}")
+            return []
+    
     async def process_document(self, document_type: str, content: str, metadata: Dict[str, Any] = None) -> List[Dict[str, Any]]:
         """Process document based on type"""
         if metadata is None:
@@ -134,6 +168,10 @@ class DocumentProcessor:
                 documents = self.process_pdf(content)
             elif document_type == "qa":
                 documents = self.process_qa_text(content)
+            elif document_type == "text":
+                # Extract title from metadata if provided
+                title = metadata.get("title", None)
+                documents = self.process_text(content, title)
             else:
                 logger.error(f"Unknown document type: {document_type}")
                 return []

@@ -6,10 +6,11 @@ class DocumentType(str, Enum):
     URL = "url"
     PDF = "pdf"
     QA = "qa"
+    TEXT = "text"
 
 class TrainingRequest(BaseModel):
     document_type: DocumentType
-    content: str  # URL for websites, base64 for PDFs, or text content for Q&A
+    content: str  # URL for websites, base64 for PDFs, text content for Q&A, or raw text for TEXT
     metadata: Optional[dict] = {}
 
 class ChatRequest(BaseModel):
