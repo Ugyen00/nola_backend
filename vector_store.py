@@ -108,14 +108,18 @@ class VectorStore:
                 include_metadata=True
             )
             
-            # Format results
+            # Format results to match your new structure
             results = []
             for match in search_response.matches:
                 result = {
                     "id": match.id,
                     "score": match.score,
-                    "text": match.metadata.get("text", ""),
-                    "metadata": {k: v for k, v in match.metadata.items() if k != "text"}
+                    "text": match.metadata.get("content", ""),  # Get content from metadata
+                    "metadata": {
+                        "source_id": match.metadata.get("source_id", ""),
+                        "source_type": match.metadata.get("source_type", ""),
+                        "chatbot_id": match.metadata.get("chatbot_id", "")
+                    }
                 }
                 results.append(result)
             
