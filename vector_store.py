@@ -64,12 +64,23 @@ class VectorStore:
             # Prepare vectors for upsert
             vectors = []
             for i, (text, embedding, metadata) in enumerate(zip(texts, embeddings, metadatas)):
+                # vector = {
+                #     "id": ids[i],
+                #     "values": embedding,
+                #     "metadata": {
+                #         "text": text,
+                #         **metadata
+                #     }
+                # }
+
                 vector = {
                     "id": ids[i],
                     "values": embedding,
                     "metadata": {
-                        "text": text,
-                        **metadata
+                        "content": text,
+                        "source_id": metadata.get("source_id", ""),
+                        "source_type": metadata.get("source_type", ""),
+                        "chatbot_id": metadata.get("chatbot_id", "")
                     }
                 }
                 vectors.append(vector)
