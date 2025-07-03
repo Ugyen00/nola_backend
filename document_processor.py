@@ -7,6 +7,8 @@ import base64
 import logging
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from config import config
+import docx2txt
+import pandas as pd
 
 logger = logging.getLogger(__name__)
 
@@ -56,43 +58,82 @@ class DocumentProcessor:
             logger.error(f"Error processing URL {url}: {str(e)}")
             return []
     
-    def process_pdf(self, pdf_base64: str) -> List[Dict[str, Any]]:
-        """Process PDF file from base64 encoded content"""
+    def process_file(self, file_base64: str, file_type: str) -> List[Dict[str, Any]]:
+        """Process various file types from base64 encoded content"""
         try:
             # Decode base64
-            pdf_bytes = base64.b64decode(pdf_base64)
-            pdf_file = io.BytesIO(pdf_bytes)
-            
-            # Extract text from PDF
-            pdf_reader = PyPDF2.PdfReader(pdf_file)
-            text_content = ""
-            
-            for page_num, page in enumerate(pdf_reader.pages):
-                text_content += page.extract_text() + "\n"
-            
-            # Split into chunks
-            chunks = self.text_splitter.split_text(text_content)
-            
-            # Create document objects
+            file_bytes = base64.b64decode(file_base64)
+            file_stream = io.BytesIO(file_bytes)
             documents = []
-            for i, chunk in enumerate(chunks):
-                doc = {
-                    "text": chunk,
-                    "metadata": {
-                        "source": "uploaded_pdf",
-                        "document_type": "pdf",
-                        "chunk_index": i,
-                        "total_pages": len(pdf_reader.pages),
-                        "page_range": f"chunk_{i}"
-                    }
-                }
-                documents.append(doc)
-            
-            logger.info(f"Processed PDF: {len(documents)} chunks from {len(pdf_reader.pages)} pages")
+
+            if file_type == "pdf":
+                pdf_reader = PyPDF2.PdfReader(file_stream)
+                text_content = ""
+                for page_num, page in enumerate(pdf_reader.pages):
+                    text_content += page.extract_text() + "\n"
+                chunks = self.text_splitter.split_text(text_content)
+                for i, chunk in enumerate(chunks):
+                    documents.append({
+                        "text": chunk,
+                        "metadata": {
+                            "source": "uploaded_pdf",
+                            "document_type": "pdf",
+                            "chunk_index": i,
+                            "total_pages": len(pdf_reader.pages),
+                            "page_range": f"chunk_{i}"
+                        }
+                    })
+
+            elif file_type == "docx":
+                text_content = docx2txt.process(file_stream)
+                chunks = self.text_splitter.split_text(text_content)
+                for i, chunk in enumerate(chunks):
+                    documents.append({
+                        "text": chunk,
+                        "metadata": {
+                            "source": "uploaded_docx",
+                            "document_type": "docx",
+                            "chunk_index": i
+                        }
+                    })
+
+            elif file_type == "xlsx":
+                excel_data = pd.read_excel(file_stream, sheet_name=None)
+                combined_text = ""
+                for sheet_name, df in excel_data.items():
+                    combined_text += f"Sheet: {sheet_name}\n{df.to_string(index=False)}\n"
+                chunks = self.text_splitter.split_text(combined_text)
+                for i, chunk in enumerate(chunks):
+                    documents.append({
+                        "text": chunk,
+                        "metadata": {
+                            "source": "uploaded_xlsx",
+                            "document_type": "xlsx",
+                            "chunk_index": i
+                        }
+                    })
+
+            elif file_type == "txt":
+                text_content = file_stream.read().decode("utf-8")
+                chunks = self.text_splitter.split_text(text_content)
+                for i, chunk in enumerate(chunks):
+                    documents.append({
+                        "text": chunk,
+                        "metadata": {
+                            "source": "uploaded_txt",
+                            "document_type": "txt",
+                            "chunk_index": i
+                        }
+                    })
+
+            else:
+                raise ValueError("Unsupported file type")
+
+            logger.info(f"Processed {file_type.upper()}: {len(documents)} chunks")
             return documents
-            
+
         except Exception as e:
-            logger.error(f"Error processing PDF: {str(e)}")
+            logger.error(f"Error processing {file_type}: {str(e)}")
             return []
     
     def process_qa_text(self, qa_content: str) -> List[Dict[str, Any]]:
@@ -164,8 +205,8 @@ class DocumentProcessor:
         try:
             if document_type == "url":
                 documents = await self.process_url(content)
-            elif document_type == "pdf":
-                documents = self.process_pdf(content)
+            elif document_type in ["pdf", "docx", "xlsx", "txt"]:
+                documents = self.process_file(content, document_type)
             elif document_type == "qa":
                 documents = self.process_qa_text(content)
             elif document_type == "text":

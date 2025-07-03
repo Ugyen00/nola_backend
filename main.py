@@ -45,54 +45,6 @@ app.add_middleware(
 training_service = TrainingService()
 chat_service = ChatService()
 
-# # Embedding Service Class
-# class EmbeddingService:
-#     def __init__(self, chat_service: ChatService):
-#         self.chat_service = chat_service
-#         self.vector_store = chat_service.vector_store
-    
-#     def get_embeddings_for_query(self, query: str, top_k: int = 5) -> dict:
-#         """
-#         Retrieve embeddings and metadata for a query without LLM generation
-#         """
-#         try:
-#             # Retrieve relevant documents from vector store
-#             sources = self.vector_store.similarity_search(query, top_k=top_k)
-            
-#             # Prepare detailed embedding information
-#             embeddings_data = []
-#             for i, source in enumerate(sources):
-#                 embedding_info = {
-#                     "rank": i + 1,
-#                     "document_id": source["id"],
-#                     "similarity_score": round(source["score"], 6),
-#                     "text_content": source["text"],
-#                     "embedding_vector": source.get("embedding", None),  # The actual embedding vector
-#                     "metadata": {
-#                         "source": source["metadata"].get("source", "unknown"),
-#                         "document_type": source["metadata"].get("document_type", "unknown"),
-#                         "chunk_index": source["metadata"].get("chunk_index", None),
-#                         "file_path": source["metadata"].get("file_path", None),
-#                         "created_at": source["metadata"].get("created_at", None)
-#                     }
-#                 }
-#                 embeddings_data.append(embedding_info)
-            
-#             return {
-#                 "query": query,
-#                 "total_results": len(embeddings_data),
-#                 "embeddings": embeddings_data,
-#                 "status": "success"
-#             }
-            
-#         except Exception as e:
-#             logger.error(f"Error retrieving embeddings: {str(e)}")
-#             return {
-#                 "query": query,
-#                 "error": str(e),
-#                 "status": "error"
-#             }
-
 class EmbeddingService:
     def __init__(self, chat_service: ChatService):
         self.chat_service = chat_service
@@ -205,34 +157,38 @@ async def train_from_url(url: str = Form(...), metadata: Optional[str] = Form(No
         logger.error(f"URL training error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"URL training failed: {str(e)}")
 
-@app.post("/train/pdf")
-async def train_from_pdf(file: UploadFile = File(...), metadata: Optional[str] = Form(None)):
-    """Train from PDF file upload"""
+@app.post("/train/file")
+async def train_from_file(
+    file: UploadFile = File(...),
+    file_type: str = Form(...),  # "pdf", "docx", "xlsx", or "txt"
+    metadata: Optional[str] = Form(None)
+):
+    """Train from uploaded file"""
     try:
-        # Validate file type
-        if not file.filename.endswith('.pdf'):
-            raise HTTPException(status_code=400, detail="File must be a PDF")
+        supported_types = ["pdf", "docx", "xlsx", "txt"]
+        if file_type not in supported_types:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {file_type}")
         
-        # Read file content
+        # Read and encode file
         file_content = await file.read()
-        file_base64 = base64.b64encode(file_content).decode('utf-8')
+        file_base64 = base64.b64encode(file_content).decode("utf-8")
         
-        # Parse metadata if provided
+        # Parse metadata
         import json
         parsed_metadata = json.loads(metadata) if metadata else {}
         parsed_metadata["filename"] = file.filename
         
         request = TrainingRequest(
-            document_type=DocumentType.PDF,
+            document_type=file_type,
             content=file_base64,
             metadata=parsed_metadata
         )
         
         return await train_chatbot(request)
-        
+
     except Exception as e:
-        logger.error(f"PDF training error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"PDF training failed: {str(e)}")
+        logger.error(f"{file_type.upper()} training error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"{file_type.upper()} training failed: {str(e)}")
 
 @app.post("/train/qa")
 async def train_from_qa(qa_text: str = Form(...), metadata: Optional[str] = Form(None)):

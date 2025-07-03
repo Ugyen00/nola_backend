@@ -3,10 +3,13 @@ from typing import List, Optional
 from enum import Enum
 
 class DocumentType(str, Enum):
-    URL = "url"
-    PDF = "pdf"
-    QA = "qa"
-    TEXT = "text"
+        PDF = "pdf"
+        DOCX = "docx"
+        XLSX = "xlsx"
+        TXT = "txt"
+        QA = "qa"
+        TEXT = "text"
+        URL = "url"
 
 class TrainingRequest(BaseModel):
     document_type: DocumentType
