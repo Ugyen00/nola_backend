@@ -24,6 +24,9 @@ tiktoken
 # File Processing
 PyPDF2
 aiofiles
+docx2txt
+openpyxl
+python-docx
 
 # Environment and Configuration
 python-dotenv
