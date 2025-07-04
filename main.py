@@ -6,6 +6,7 @@ from typing import List, Optional
 import base64
 import asyncio
 import json
+import os
 from pydantic import BaseModel, HttpUrl
 from typing import List, Optional
 # Import our custom modules
