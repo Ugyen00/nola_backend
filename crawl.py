@@ -410,24 +410,3 @@ async def scrape_page(url: str, chatbot_id: str) -> Optional[WebsiteData]:
     """Convenience function to scrape a single page"""
     crawler = WebCrawler()
     return await crawler.scrape_single_page(url, chatbot_id)
-
-
-# # Example usage
-# if __name__ == "__main__":
-#     async def main():
-#         # Example: Crawl a website
-#         websites = await crawl_website("https://example.com", "chatbot_123", max_pages=10)
-        
-#         for website in websites:
-#             print(f"Title: {website.title}")
-#             print(f"URL: {website.url}")
-#             print(f"Chunks: {len(website.content)}")
-#             print(f"Metadata: {website.metadata}")
-#             print("-" * 50)
-        
-#         # Example: Scrape a single page
-#         page_data = await scrape_page("https://example.com/about", "chatbot_123")
-#         if page_data:
-#             print(f"Single page scraped: {page_data.title}")
-    
-#     asyncio.run(main())
