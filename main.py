@@ -4,7 +4,10 @@ import logging
 import uvicorn
 from typing import List, Optional
 import base64
-
+import asyncio
+import json
+from pydantic import BaseModel, HttpUrl
+from typing import List, Optional
 # Import our custom modules
 from models import (
     TrainingRequest, 
@@ -18,6 +21,28 @@ from training_service import TrainingService
 from chat_service import ChatService
 from config import config
 
+# Import the crawler module
+from crawl import crawl_website, scrape_page, WebCrawler
+
+
+# Add these new models after your existing imports but before the logging config
+class CrawlWebsiteRequest(BaseModel):
+    chatbot_id: str
+    base_url: HttpUrl
+    max_pages: int = 50
+    max_depth: int = 2
+    auto_train: bool = True
+
+class ScrapePageRequest(BaseModel):
+    chatbot_id: str
+    url: HttpUrl
+    auto_train: bool = True
+
+class BatchUrlsRequest(BaseModel):
+    chatbot_id: str
+    urls: List[str]
+    auto_train: bool = True
+
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
@@ -27,9 +52,9 @@ logger = logging.getLogger(__name__)
 
 # Initialize FastAPI app
 app = FastAPI(
-    title="RAG AI Chatbot Backend",
-    description="A FastAPI backend for RAG-based AI chatbot with training capabilities",
-    version="1.0.0"
+    title="RAG AI Chatbot Backend with Web Crawler",
+    description="A FastAPI backend for RAG-based AI chatbot with training capabilities and web crawling",
+    version="1.1.0"
 )
 
 # Add CORS middleware
@@ -86,24 +111,181 @@ class EmbeddingService:
                 "error": str(e),
                 "status": "error"
             }
+
+class CrawlerService:
+    """Service class to handle web crawling operations"""
+    
+    def __init__(self, training_service: TrainingService):
+        self.training_service = training_service
+        self.crawler = WebCrawler()
+    
+    async def crawl_and_train(self, base_url: str, chatbot_id: str, max_pages: int = 50, max_depth: int = 2, auto_train: bool = True) -> dict:
+        """Crawl a website and optionally train the chatbot with the content"""
+        try:
+            logger.info(f"Starting crawl and train for {base_url}")
+            
+            # Crawl the website
+            websites_data = await crawl_website(base_url, chatbot_id, max_pages, max_depth)
+            
+            if not websites_data:
+                return {
+                    "success": False,
+                    "message": "No content was successfully crawled from the website",
+                    "crawled_pages": 0,
+                    "trained_chunks": 0,
+                    "websites_data": []
+                }
+            
+            # If auto_train is False, return just the crawled data
+            if not auto_train:
+                return {
+                    "success": True,
+                    "message": f"Successfully crawled {len(websites_data)} pages",
+                    "total_pages": len(websites_data),
+                    "successful_pages": len(websites_data),
+                    "websites_data": [website.to_dict() for website in websites_data]
+                }
+            
+            # Train the chatbot with each crawled page
+            total_chunks_trained = 0
+            successful_trainings = 0
+            
+            for website_data in websites_data:
+                try:
+                    # Convert website data to training format
+                    content_text = "\n\n".join([chunk.content for chunk in website_data.content])
+                    
+                    # Prepare metadata for training
+                    training_metadata = {
+                        "source_type": "website_crawl",
+                        "source_url": website_data.url,
+                        "title": website_data.title,
+                        "chatbot_id": chatbot_id,
+                        "crawl_metadata": website_data.metadata
+                    }
+                    
+                    # Train with the content
+                    training_result = await self.training_service.train_from_document(
+                        DocumentType.TEXT,
+                        content_text,
+                        training_metadata
+                    )
+                    
+                    if training_result["success"]:
+                        total_chunks_trained += training_result["chunks_processed"]
+                        successful_trainings += 1
+                        logger.info(f"Successfully trained from {website_data.url}")
+                    else:
+                        logger.error(f"Failed to train from {website_data.url}: {training_result['message']}")
+                
+                except Exception as e:
+                    logger.error(f"Error training from {website_data.url}: {str(e)}")
+                    continue
+            
+            return {
+                "success": True,
+                "message": f"Successfully crawled {len(websites_data)} pages and trained {successful_trainings} pages",
+                "crawled_pages": len(websites_data),
+                "successful_trainings": successful_trainings,
+                "total_chunks_trained": total_chunks_trained,
+                "base_url": base_url,
+                "chatbot_id": chatbot_id
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in crawl_and_train: {str(e)}")
+            return {
+                "success": False,
+                "message": f"Crawling and training failed: {str(e)}",
+                "crawled_pages": 0,
+                "trained_chunks": 0
+            }
+    
+    async def scrape_and_train(self, url: str, chatbot_id: str, auto_train: bool = True) -> dict:
+        """Scrape a single page and optionally train the chatbot with the content"""
+        try:
+            logger.info(f"Starting scrape and train for {url}")
+            
+            # Scrape the page
+            website_data = await scrape_page(url, chatbot_id)
+            
+            if not website_data:
+                return {
+                    "success": False,
+                    "message": "Failed to scrape content from the URL",
+                    "url": url,
+                    "trained_chunks": 0
+                }
+            
+            # If auto_train is False, return just the scraped data
+            if not auto_train:
+                return {
+                    "success": True,
+                    "message": f"Successfully scraped {url}",
+                    "website_data": website_data.to_dict()
+                }
+            
+            # Convert to training format
+            content_text = "\n\n".join([chunk.content for chunk in website_data.content])
+            
+            # Prepare metadata
+            training_metadata = {
+                "source_type": "website_scrape",
+                "source_url": website_data.url,
+                "title": website_data.title,
+                "chatbot_id": chatbot_id,
+                "scrape_metadata": website_data.metadata
+            }
+            
+            # Train with the content
+            training_result = await self.training_service.train_from_document(
+                DocumentType.TEXT,
+                content_text,
+                training_metadata
+            )
+            
+            if training_result["success"]:
+                return {
+                    "success": True,
+                    "message": f"Successfully scraped and trained from {url}",
+                    "url": url,
+                    "title": website_data.title,
+                    "chunks_processed": training_result["chunks_processed"],
+                    "word_count": website_data.metadata.get("word_count", 0)
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": f"Scraping succeeded but training failed: {training_result['message']}",
+                    "url": url,
+                    "trained_chunks": 0
+                }
+                
+        except Exception as e:
+            logger.error(f"Error in scrape_and_train: {str(e)}")
+            return {
+                "success": False,
+                "message": f"Scraping and training failed: {str(e)}",
+                "url": url,
+                "trained_chunks": 0
+            }
         
-# Initialize embedding service
+# Initialize services
 embedding_service = EmbeddingService(chat_service)
+crawler_service = CrawlerService(training_service)
 
 @app.get("/", response_model=HealthResponse)
 async def root():
     """Root endpoint"""
     return HealthResponse(
         status="healthy",
-        message="RAG AI Chatbot Backend is running"
+        message="RAG AI Chatbot Backend with Web Crawler is running"
     )
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Health check endpoint"""
     try:
-        # You could add more sophisticated health checks here
-        # like checking database connections, etc.
         return HealthResponse(
             status="healthy",
             message="All services are operational"
@@ -111,6 +293,143 @@ async def health_check():
     except Exception as e:
         logger.error(f"Health check failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Service unhealthy")
+
+@app.post("/crawler/crawl-website")
+async def crawl_website_endpoint(request: CrawlWebsiteRequest):
+    """
+    Crawl an entire website and optionally train the chatbot with the content (JSON input)
+    """
+    try:
+        # Validate parameters
+        if request.max_pages < 1 or request.max_pages > 200:
+            raise HTTPException(status_code=400, detail="max_pages must be between 1 and 200")
+        
+        if request.max_depth < 1 or request.max_depth > 5:
+            raise HTTPException(status_code=400, detail="max_depth must be between 1 and 5")
+        
+        base_url = str(request.base_url)
+        
+        # Use the updated crawl_and_train method that handles both auto_train cases
+        result = await crawler_service.crawl_and_train(
+            base_url, 
+            request.chatbot_id, 
+            request.max_pages, 
+            request.max_depth,
+            request.auto_train
+        )
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Website crawling error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Website crawling failed: {str(e)}")
+
+@app.post("/crawler/scrape-page")
+async def scrape_page_endpoint(request: ScrapePageRequest):
+    """
+    Scrape a single page and optionally train the chatbot with the content (JSON input)
+    """
+    try:
+        url = str(request.url)
+        
+        # Use the updated scrape_and_train method that handles both auto_train cases
+        result = await crawler_service.scrape_and_train(url, request.chatbot_id, request.auto_train)
+        
+        return result
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Page scraping error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Page scraping failed: {str(e)}")
+
+@app.post("/crawler/batch-urls")
+async def batch_crawl_urls(request: BatchUrlsRequest):
+    """
+    Scrape multiple URLs in batch and optionally train the chatbot (JSON input)
+    """
+    try:
+        if len(request.urls) > 50:
+            raise HTTPException(status_code=400, detail="Maximum 50 URLs allowed per batch")
+        
+        # Validate URLs
+        for url in request.urls:
+            if not url.startswith(('http://', 'https://')):
+                raise HTTPException(status_code=400, detail=f"Invalid URL format: {url}")
+        
+        # Process each URL
+        results = []
+        successful_count = 0
+        total_chunks_trained = 0
+        
+        for url in request.urls:
+            try:
+                if request.auto_train:
+                    result = await crawler_service.scrape_and_train(url, request.chatbot_id, True)
+                    if result["success"]:
+                        successful_count += 1
+                        total_chunks_trained += result.get("chunks_processed", 0)
+                else:
+                    result = await crawler_service.scrape_and_train(url, request.chatbot_id, False)
+                    if result["success"]:
+                        successful_count += 1
+                
+                results.append(result)
+                
+            except Exception as e:
+                logger.error(f"Error processing URL {url}: {str(e)}")
+                results.append({
+                    "success": False,
+                    "url": url,
+                    "message": f"Error: {str(e)}"
+                })
+        
+        return {
+            "success": True,
+            "message": f"Batch processing completed: {successful_count}/{len(request.urls)} URLs successful",
+            "total_urls": len(request.urls),
+            "successful_urls": successful_count,
+            "total_chunks_trained": total_chunks_trained if request.auto_train else None,
+            "results": results,
+            "chatbot_id": request.chatbot_id
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Batch URL processing error: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Batch URL processing failed: {str(e)}")
+
+@app.get("/crawler/status")
+async def crawler_status():
+    """Get crawler service status and capabilities"""
+    try:
+        return {
+            "status": "operational",
+            "capabilities": {
+                "website_crawling": True,
+                "single_page_scraping": True,
+                "batch_processing": True,
+                "auto_training": True,
+                "sitemap_discovery": True,
+                "link_following": True
+            },
+            "limits": {
+                "max_pages_per_crawl": 200,
+                "max_depth": 5,
+                "max_batch_urls": 50,
+                "default_chunk_size": 1000
+            },
+            "supported_content_types": [
+                "text/html",
+                "application/xhtml+xml"
+            ]
+        }
+    except Exception as e:
+        logger.error(f"Error getting crawler status: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to get crawler status: {str(e)}")
 
 @app.post("/train", response_model=TrainingResponse)
 async def train_chatbot(request: TrainingRequest):
@@ -139,7 +458,7 @@ async def train_chatbot(request: TrainingRequest):
 
 @app.post("/train/url")
 async def train_from_url(url: str = Form(...), metadata: Optional[str] = Form(None)):
-    """Train from website URL"""
+    """Train from website URL (legacy endpoint - consider using /crawler/scrape-page instead)"""
     try:
         # Parse metadata if provided
         import json
@@ -343,12 +662,12 @@ async def get_raw_embeddings(query: str = Form(...), top_k: Optional[int] = Form
                 "rank": embedding_data["rank"],
                 "similarity_score": embedding_data["similarity_score"],
                 "document_id": embedding_data["document_id"],
-                "embedding_vector": embedding_data["embedding_vector"],
-                "text_preview": embedding_data["text_content"][:200] + "..." if len(embedding_data["text_content"]) > 200 else embedding_data["text_content"],
+                "embedding_vector": embedding_data.get("embedding_vector", []),
+                "text_preview": embedding_data["content"][:200] + "..." if len(embedding_data["content"]) > 200 else embedding_data["content"],
                 "source_info": {
-                    "source_id": embedding_data["metadata"]["source_id"],
-                    "source_type": embedding_data["metadata"]["source_type"],
-                    "chatbot_id": embedding_data["metadata"]["chatbot_id"]
+                    "source_id": embedding_data["source_id"],
+                    "source_type": embedding_data["source_type"],
+                    "chatbot_id": embedding_data["chatbot_id"]
                 }
             })
         
