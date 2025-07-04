@@ -1,3 +1,12 @@
 .env
 .env.local
 .env.*
+# Environment setup packages
+node_modules/
+venv/
+.envrc
+.pipenv
+Pipfile
+Pipfile.lock
+poetry.lock
+# Add more as needed for your stack
