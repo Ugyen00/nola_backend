@@ -283,18 +283,6 @@ async def root():
         message="RAG AI Chatbot Backend with Web Crawler is running"
     )
 
-@app.get("/health", response_model=HealthResponse)
-async def health_check():
-    """Health check endpoint"""
-    try:
-        return HealthResponse(
-            status="healthy",
-            message="All services are operational"
-        )
-    except Exception as e:
-        logger.error(f"Health check failed: {str(e)}")
-        raise HTTPException(status_code=500, detail="Service unhealthy")
-
 @app.post("/crawler/crawl-website")
 async def crawl_website_endpoint(request: CrawlWebsiteRequest):
     """
@@ -403,34 +391,6 @@ async def batch_crawl_urls(request: BatchUrlsRequest):
         logger.error(f"Batch URL processing error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Batch URL processing failed: {str(e)}")
 
-@app.get("/crawler/status")
-async def crawler_status():
-    """Get crawler service status and capabilities"""
-    try:
-        return {
-            "status": "operational",
-            "capabilities": {
-                "website_crawling": True,
-                "single_page_scraping": True,
-                "batch_processing": True,
-                "auto_training": True,
-                "sitemap_discovery": True,
-                "link_following": True
-            },
-            "limits": {
-                "max_pages_per_crawl": 200,
-                "max_depth": 5,
-                "max_batch_urls": 50,
-                "default_chunk_size": 1000
-            },
-            "supported_content_types": [
-                "text/html",
-                "application/xhtml+xml"
-            ]
-        }
-    except Exception as e:
-        logger.error(f"Error getting crawler status: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Failed to get crawler status: {str(e)}")
 
 @app.post("/train", response_model=TrainingResponse)
 async def train_chatbot(request: TrainingRequest):
@@ -456,26 +416,6 @@ async def train_chatbot(request: TrainingRequest):
     except Exception as e:
         logger.error(f"Training error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Training failed: {str(e)}")
-
-@app.post("/train/url")
-async def train_from_url(url: str = Form(...), metadata: Optional[str] = Form(None)):
-    """Train from website URL (legacy endpoint - consider using /crawler/scrape-page instead)"""
-    try:
-        # Parse metadata if provided
-        import json
-        parsed_metadata = json.loads(metadata) if metadata else {}
-        
-        request = TrainingRequest(
-            document_type=DocumentType.URL,
-            content=url,
-            metadata=parsed_metadata
-        )
-        
-        return await train_chatbot(request)
-        
-    except Exception as e:
-        logger.error(f"URL training error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"URL training failed: {str(e)}")
 
 @app.post("/train/file")
 async def train_from_file(
@@ -633,57 +573,6 @@ async def get_embeddings(query: str = Form(...), top_k: Optional[int] = Form(5))
         logger.error(f"Error in embeddings endpoint: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Embedding retrieval failed: {str(e)}")
 
-@app.post("/embeddings/raw")
-async def get_raw_embeddings(query: str = Form(...), top_k: Optional[int] = Form(5)):
-    """
-    Get only the raw embedding vectors without full metadata
-    
-    Returns a simplified response with just the embedding vectors and similarity scores
-    """
-    try:
-        # Validate top_k
-        if not isinstance(top_k, int) or top_k < 1 or top_k > 50:
-            raise HTTPException(
-                status_code=400, 
-                detail="top_k must be an integer between 1 and 50"
-            )
-        
-        logger.info(f"Raw embedding request received: {query[:50]}...")
-        
-        # Get embeddings
-        result = embedding_service.get_embeddings_for_query(query, top_k)
-        
-        if result["status"] == "error":
-            raise HTTPException(status_code=500, detail=result["error"])
-        
-        # Extract only embedding vectors and basic info
-        raw_embeddings = []
-        for embedding_data in result["embeddings"]:
-            raw_embeddings.append({
-                "rank": embedding_data["rank"],
-                "similarity_score": embedding_data["similarity_score"],
-                "document_id": embedding_data["document_id"],
-                "embedding_vector": embedding_data.get("embedding_vector", []),
-                "text_preview": embedding_data["content"][:200] + "..." if len(embedding_data["content"]) > 200 else embedding_data["content"],
-                "source_info": {
-                    "source_id": embedding_data["source_id"],
-                    "source_type": embedding_data["source_type"],
-                    "chatbot_id": embedding_data["chatbot_id"]
-                }
-            })
-        
-        return {
-            "query": query,
-            "total_results": len(raw_embeddings),
-            "embeddings": raw_embeddings,
-            "status": "success"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error in raw embeddings endpoint: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Raw embedding retrieval failed: {str(e)}")
 
 @app.get("/embeddings/search/{query}")
 async def search_embeddings_get(query: str, top_k: int = 5):
