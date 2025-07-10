@@ -6,8 +6,8 @@ load_dotenv()
 class Config:
     # OpenAI Configuration
     OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-    OPENAI_MODEL = "gpt-4o-mini"  # Changed from gpt-4-turbo-preview to gpt-4o-mini
-    OPENAI_EMBEDDING_MODEL = "text-embedding-3-large"  # Best OpenAI embedding model
+    OPENAI_MODEL = "gpt-4o-mini" 
+    OPENAI_EMBEDDING_MODEL = "text-embedding-3-large"
     
     # Pinecone Configuration
     PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
